@@ -4,7 +4,8 @@ OS_NAME := $(shell uname -s)
 CODEFILES=main.cpp helper.cpp device.cpp debug.cpp \
 	device_64drive.cpp \
 	device_everdrive.cpp \
-	device_sc64.cpp
+	device_sc64.cpp \
+	network.cpp
 LIBFILES=Include/lodepng.cpp
 
 CC=g++

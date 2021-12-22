@@ -12,6 +12,7 @@ Passes flashcart communication to more specific functions
 #include "device_64drive.h"
 #include "device_everdrive.h"
 #include "device_sc64.h"
+#include "network.h"
 
 
 /*********************************
@@ -315,6 +316,13 @@ void device_sendrom(char* rompath)
         if (global_debugmode) 
         {
             debug_main(&local_usb);
+            escignore = true;
+        }
+
+        // Start Network Mode
+        if (global_networkmode)
+        {
+            network_main(&local_usb);
             escignore = true;
         }
 

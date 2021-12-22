@@ -39,6 +39,7 @@ int     global_cictype     = -1;
 u32     global_savetype    = 0;
 bool    global_listenmode  = false;
 bool    global_debugmode   = false;
+bool    global_networkmode = false;
 bool    global_z64         = false;
 char*   global_debugout    = NULL;
 FILE*   global_debugoutptr = NULL;
@@ -236,6 +237,29 @@ void parse_args(int argc, char* argv[])
         {
             global_debugmode = true;
             pdprint("Debug mode enabled.", CRDEF_PROGRAM);
+
+            // If we have an argument after this one, then set the output directory
+            if (i+1<argc && argv[i+1][0] != '-')
+            {
+                i++;
+                if (global_exportpath != NULL)
+                {
+                    char* filepath = (char*)malloc(256);
+                    memset(filepath, 0 ,256);
+                    strcat(filepath, global_exportpath);
+                    strcat(filepath, argv[i]);
+                    global_debugout = filepath;
+                }
+                else
+                    global_debugout = argv[i];
+                pdprint(" Writing output to %s.", CRDEF_PROGRAM, global_debugout);
+            }
+            pdprint("\n", CRDEF_PROGRAM);
+        }
+        else if (!strcmp(command, "-net")) // Network mode
+        {
+            global_networkmode = true;
+            pdprint("Network mode enabled.", CRDEF_PROGRAM);
 
             // If we have an argument after this one, then set the output directory
             if (i+1<argc && argv[i+1][0] != '-')

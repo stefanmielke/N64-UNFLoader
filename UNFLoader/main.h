@@ -58,6 +58,7 @@
     extern u32     global_savetype;
     extern bool    global_listenmode;
     extern bool    global_debugmode;
+    extern bool    global_networkmode;
     extern bool    global_z64;
     extern char*   global_debugout;
     extern FILE*   global_debugoutptr;
