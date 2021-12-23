@@ -11,9 +11,9 @@ LIBFILES=Include/lodepng.cpp
 CC=g++
 
 ifeq ($(OS_NAME),Darwin)
-	DEPENDENCIES := -lncurses -lftd2xx -lpthread
+	DEPENDENCIES := -lncurses -lftd2xx -lpthread -lcurl
 else
-	DEPENDENCIES := -lncurses -lftd2xx -lpthread -lrt 
+	DEPENDENCIES := -lncurses -lftd2xx -lpthread -lrt -lcurl
 endif
 
 LINKER_OPTIONS := -Wl,-rpath /usr/local/lib

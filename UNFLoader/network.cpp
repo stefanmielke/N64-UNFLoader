@@ -1,7 +1,7 @@
 /***************************************************************
                            network.cpp
 
-Handles USB I/O.
+Handles USB I/O for networking.
 ***************************************************************/
 #pragma warning(push, 0)
     #include "Include/lodepng.h"
@@ -10,6 +10,8 @@ Handles USB I/O.
 #include "helper.h"
 #include "device.h"
 #include "network.h"
+
+#include <curl/curl.h>
 
 
 /*********************************
@@ -32,6 +34,12 @@ void network_decidedata(ftdi_context_t* cart, u32 info, char* buffer, u32* read)
 void network_handle_url_fetch(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
 void network_handle_text(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
 void network_handle_rawbinary(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
+size_t network_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata);
+
+typedef struct MemoryWriteCallback {
+    char memory[200];
+    size_t cur_size;
+} MemoryWriteCallback;
 
 
 /*********************************
@@ -39,6 +47,7 @@ void network_handle_rawbinary(ftdi_context_t* cart, u32 size, char* buffer, u32*
 *********************************/
 
 static int network_headerdata[HEADER_SIZE];
+CURL *curl;
 
 
 /*==============================
@@ -87,6 +96,13 @@ void network_main(ftdi_context_t *cart)
         case CART_EVERDRIVE: alignment = 16; break;
         case CART_SC64: alignment = 4; break;
         default: alignment = 0;
+    }
+
+    // init cURL for URL fetch
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
+    if (!curl){
+        terminate("Error loading cURL");
     }
 
     // Start the debug server loop
@@ -146,6 +162,8 @@ void network_main(ftdi_context_t *cart)
             #endif
         }
     }
+
+    curl_global_cleanup();
 
     // Close the debug output file if it exists
     if (global_debugoutptr != NULL)
@@ -224,10 +242,33 @@ void network_handle_url_fetch(ftdi_context_t* cart, u32 size, char* buffer, u32*
             left = BUFFER_SIZE;
     }
 
-    // TODO: fetch data from URL
+    CURLcode res;
+    MemoryWriteCallback data_buffer;
+    data_buffer.cur_size = 0;
+    
+    curl_easy_setopt(curl, CURLOPT_URL, buffer);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_write_callback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&data_buffer);
 
-    const char* dataFromURL = "Yay";
-    device_senddata(0x01, (char *)dataFromURL, 3);
+    res = curl_easy_perform(curl);
+    if(res != CURLE_OK)
+      pdprint("curl_easy_perform() failed: %s\n", CRDEF_ERROR,
+              curl_easy_strerror(res));
+
+    curl_easy_cleanup(curl);
+
+    device_senddata(0x01, &data_buffer.memory[0], data_buffer.cur_size);
+}
+
+size_t network_write_callback(char *contents, size_t size, size_t nmemb, void *userdata)
+{
+    size_t real_size = size * nmemb;
+    MemoryWriteCallback* data_buffer = (MemoryWriteCallback *)userdata;
+
+    memcpy(&(data_buffer->memory[data_buffer->cur_size]), contents, real_size);
+    data_buffer->cur_size += real_size;
+
+    return real_size;
 }
 
 
