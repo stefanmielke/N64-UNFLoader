@@ -37,7 +37,7 @@ void network_handle_rawbinary(ftdi_context_t* cart, u32 size, char* buffer, u32*
 size_t network_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata);
 
 typedef struct MemoryWriteCallback {
-    char memory[200];
+    char* memory;
     size_t cur_size;
 } MemoryWriteCallback;
 
@@ -105,7 +105,7 @@ void network_main(ftdi_context_t *cart)
         terminate("Error loading cURL");
     }
 
-    // Start the debug server loop
+    // Start the network server loop
     for ( ; ; ) 
 	{
         int ch = getch();
@@ -200,9 +200,9 @@ void network_decidedata(ftdi_context_t* cart, u32 info, char* buffer, u32* read)
     // Decide what to do with the data based off the command type
     switch (command)
     {
-        case NETTYPE_URL_FETCH:   network_handle_url_fetch(cart, size, buffer, read); break;
         case NETTYPE_TEXT:        network_handle_text(cart, size, buffer, read); break;
-        default:                  terminate("Unknown data type.");
+        case NETTYPE_URL_FETCH:   network_handle_url_fetch(cart, size, buffer, read); break;
+        default:                  printf("Unknown data type: %d", command);
     }
 }
 
@@ -230,7 +230,9 @@ void network_handle_url_fetch(ftdi_context_t* cart, u32 size, char* buffer, u32*
     {
         // Read from the USB and print it
         FT_Read(cart->handle, buffer, left, &cart->bytes_read);
+        #if VERBOSE
         pdprint("%.*s", CRDEF_PRINT, cart->bytes_read, buffer);
+        #endif
 
         // Store the amount of bytes read
         (*read) += cart->bytes_read;
@@ -245,25 +247,33 @@ void network_handle_url_fetch(ftdi_context_t* cart, u32 size, char* buffer, u32*
     CURLcode res;
     MemoryWriteCallback data_buffer;
     data_buffer.cur_size = 0;
+    data_buffer.memory = NULL;
     
     curl_easy_setopt(curl, CURLOPT_URL, buffer);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&data_buffer);
 
+    #if VERBOSE
+    pdprint("\ncalling URL: %s\n", CRDEF_INFO, buffer);
+    #endif
+
     res = curl_easy_perform(curl);
     if(res != CURLE_OK)
-      pdprint("curl_easy_perform() failed: %s\n", CRDEF_ERROR,
-              curl_easy_strerror(res));
+      pdprint("\ncurl_easy_perform() failed: %s\n", CRDEF_ERROR, curl_easy_strerror(res));
 
     curl_easy_cleanup(curl);
 
-    device_senddata(0x01, &data_buffer.memory[0], data_buffer.cur_size);
+    device_senddata(0x01, data_buffer.memory, data_buffer.cur_size);
 }
 
 size_t network_write_callback(char *contents, size_t size, size_t nmemb, void *userdata)
 {
     size_t real_size = size * nmemb;
     MemoryWriteCallback* data_buffer = (MemoryWriteCallback *)userdata;
+    if (data_buffer->memory)
+        data_buffer->memory = (char *)realloc(data_buffer->memory, data_buffer->cur_size + real_size);
+    else
+        data_buffer->memory = (char *)malloc(real_size);
 
     memcpy(&(data_buffer->memory[data_buffer->cur_size]), contents, real_size);
     data_buffer->cur_size += real_size;

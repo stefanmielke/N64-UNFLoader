@@ -345,26 +345,17 @@ void network_printf(const char *message, ...) {
 	@param A URL
 ==============================*/
 
-void network_url_fetch(const char *url, ...)
+void network_url_fetch(const char *url)
 {
-	int len = 0;
-	usbMesg msg;
-	va_list args;
-
-	// use the internal libultra printf function to format the string
-	va_start(args, url);
-#ifndef LIBDRAGON
-	len = _Printf(&printf_handler, network_buffer, url, args);
-#else
-	len = vsprintf(network_buffer, url, args);
-#endif
-	va_end(args);
+	int len = strlen(url);
+	memcpy(network_buffer, url, len);
 
 	// Attach the '\0' if necessary
-	if (0 <= len)
+	if (len >= 0)
 		network_buffer[len] = '\0';
 
 	// Send the printf to the usb thread
+	usbMesg msg;
 	msg.msgtype = MSG_WRITE;
 	msg.datatype = NETTYPE_URL_FETCH;
 	msg.buff = network_buffer;

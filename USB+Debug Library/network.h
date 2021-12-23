@@ -6,8 +6,8 @@
     *********************************/
 
     // Settings
-    #define NETWORK_MODE        1   // Enable/Disable debug mode
-    #define NETWORK_INIT_MSG    1   // Print a message when debug mode has initialized
+    #define NETWORK_MODE      1   // Enable/Disable debug mode
+    #define NETWORK_INIT_MSG  1   // Print a message when debug mode has initialized
     #define USE_FAULTTHREAD   1   // Create a fault detection thread (libultra only)
     #define OVERWRITE_OSPRINT 1   // Replaces osSyncPrintf calls with network_printf (libultra only)
     #define MAX_COMMANDS      25  // The max amount of user defined commands possible
@@ -23,12 +23,12 @@
     #define USB_THREAD_STACK 0x2000
     
     // Network types defintions
-    #define NETTYPE_UDP_CONNECT  0x01
-    #define NETTYPE_UDP_SEND     0x02
-    #define NETTYPE_URL_FETCH    0x03
-    #define NETTYPE_URL_DOWNLOAD 0x04
-    #define NETTYPE_URL_REQUEST  0x05
-    #define NETTYPE_TEXT         0x06
+    #define NETTYPE_TEXT         0x01
+    #define NETTYPE_UDP_CONNECT  0x02
+    #define NETTYPE_UDP_SEND     0x03
+    #define NETTYPE_URL_FETCH    0x04
+    #define NETTYPE_URL_DOWNLOAD 0x05
+    #define NETTYPE_URL_REQUEST  0x06
     
     
     /*********************************
@@ -63,7 +63,7 @@
             @param A URL
         ==============================*/
 
-        extern void network_url_fetch(const char* url, ...);
+        extern void network_url_fetch(const char* url);
         
         
         /*==============================
