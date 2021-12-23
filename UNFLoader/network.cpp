@@ -12,6 +12,7 @@ Handles USB I/O for networking.
 #include "network.h"
 
 #include <curl/curl.h>
+#include <enet/enet.h>
 
 
 /*********************************
@@ -31,9 +32,12 @@ Handles USB I/O for networking.
 *********************************/
 
 void network_decidedata(ftdi_context_t* cart, u32 info, char* buffer, u32* read);
+void network_handle_udp_start_server(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
+void network_handle_udp_connect(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
+void network_handle_udp_disconnect(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
+void network_handle_udp_send(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
 void network_handle_url_fetch(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
 void network_handle_text(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
-void network_handle_rawbinary(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
 size_t network_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata);
 
 typedef struct MemoryWriteCallback {
@@ -41,13 +45,24 @@ typedef struct MemoryWriteCallback {
     size_t cur_size;
 } MemoryWriteCallback;
 
+typedef enum NetworkType {
+    NT_NOTHING,
+    NT_CLIENT,
+    NT_SERVER,
+} NetworkType;
+
 
 /*********************************
          Global Variables
 *********************************/
 
 static int network_headerdata[HEADER_SIZE];
-CURL *curl;
+CURL* curl;
+
+ENetAddress address;
+ENetHost* host;
+ENetPeer *peer;
+NetworkType network_type;
 
 
 /*==============================
@@ -64,6 +79,8 @@ void network_main(ftdi_context_t *cart)
     u16 cursorpos = 0;
     DWORD pending = 0;
     WINDOW* inputwin = newwin(1, getmaxx(stdscr), getmaxy(stdscr)-1, 0);
+
+    network_type = NT_NOTHING;
 
     // Initialize debug mode keyboard input
     if (global_timeout != 0)
@@ -101,9 +118,12 @@ void network_main(ftdi_context_t *cart)
     // init cURL for URL fetch
     curl_global_init(CURL_GLOBAL_DEFAULT);
     curl = curl_easy_init();
-    if (!curl){
+    if (!curl)
         terminate("Error loading cURL");
-    }
+
+    // init ENet
+    if (enet_initialize () != 0)
+        terminate("Error initializing ENet");
 
     // Start the network server loop
     for ( ; ; ) 
@@ -165,6 +185,8 @@ void network_main(ftdi_context_t *cart)
 
     curl_global_cleanup();
 
+    enet_deinitialize();
+
     // Close the debug output file if it exists
     if (global_debugoutptr != NULL)
     {
@@ -200,9 +222,13 @@ void network_decidedata(ftdi_context_t* cart, u32 info, char* buffer, u32* read)
     // Decide what to do with the data based off the command type
     switch (command)
     {
-        case NETTYPE_TEXT:        network_handle_text(cart, size, buffer, read); break;
-        case NETTYPE_URL_FETCH:   network_handle_url_fetch(cart, size, buffer, read); break;
-        default:                  printf("Unknown data type: %d", command);
+        case NETTYPE_TEXT:             network_handle_text(cart, size, buffer, read); break;
+        case NETTYPE_UDP_START_SERVER: network_handle_udp_start_server(cart, size, buffer, read); break;
+        case NETTYPE_UDP_CONNECT:      network_handle_udp_connect(cart, size, buffer, read); break;
+        case NETTYPE_UDP_DISCONNECT:   network_handle_udp_disconnect(cart, size, buffer, read); break;
+        case NETTYPE_UDP_SEND:         network_handle_udp_send(cart, size, buffer, read); break;
+        case NETTYPE_URL_FETCH:        network_handle_url_fetch(cart, size, buffer, read); break;
+        default:                       printf("Unknown data type: %d", command);
     }
 }
 
@@ -263,7 +289,7 @@ void network_handle_url_fetch(ftdi_context_t* cart, u32 size, char* buffer, u32*
 
     curl_easy_cleanup(curl);
 
-    device_senddata(0x01, data_buffer.memory, data_buffer.cur_size);
+    device_senddata(NETTYPE_TEXT, data_buffer.memory, data_buffer.cur_size);
 }
 
 size_t network_write_callback(char *contents, size_t size, size_t nmemb, void *userdata)
@@ -320,47 +346,18 @@ void network_handle_text(ftdi_context_t* cart, u32 size, char* buffer, u32* read
 
 
 /*==============================
-    network_handle_rawbinary
-    Handles DATATYPE_RAWBINARY
+    network_handle_udp_start_server
+    Handles NETTYPE_UDP_START_SERVER
     @param A pointer to the cart context
     @param The size of the incoming data
     @param The buffer to use
     @param A pointer to a variable that stores the number of bytes read
 ==============================*/
 
-void network_handle_rawbinary(ftdi_context_t* cart, u32 size, char* buffer, u32* read)
+void network_handle_udp_start_server(ftdi_context_t* cart, u32 size, char* buffer, u32* read)
 {
     int total = 0;
     int left = size;
-    char* filename = (char*) malloc(PATH_SIZE);
-    char* extraname = gen_filename();
-    FILE* fp; 
-
-    // Ensure we malloced successfully
-    if (filename == NULL || extraname == NULL)
-        terminate("Unable to allocate memory for binary file.");
-
-    // Create the binary file to save data to
-    memset(filename, 0, PATH_SIZE);
-    #ifndef LINUX
-        if (global_exportpath != NULL)
-                strcat_s(filename, PATH_SIZE, global_exportpath);
-        strcat_s(filename, PATH_SIZE, "binaryout-");
-        strcat_s(filename, PATH_SIZE, extraname);
-        strcat_s(filename, PATH_SIZE, ".bin");
-        fopen_s(&fp, filename, "wb+");
-    #else
-        if (global_exportpath != NULL)
-            strcat(filename, global_exportpath);
-        strcat(filename, "binaryout-");
-        strcat(filename, extraname);
-        strcat(filename, ".bin");
-        fp = fopen(filename, "wb+");
-    #endif
-
-    // Ensure the file was created
-    if (fp == NULL)
-        terminate("Unable to create binary file.");
 
     // Ensure the data fits within our buffer
     if (left > BUFFER_SIZE)
@@ -369,9 +366,11 @@ void network_handle_rawbinary(ftdi_context_t* cart, u32 size, char* buffer, u32*
     // Read bytes until we finished
     while (left != 0)
     {
-        // Read from the USB and save it to our binary file
+        // Read from the USB and print it
         FT_Read(cart->handle, buffer, left, &cart->bytes_read);
-        fwrite(buffer, 1, left, fp);
+        #if VERBOSE
+        pdprint("%.*s", CRDEF_PRINT, cart->bytes_read, buffer);
+        #endif
 
         // Store the amount of bytes read
         (*read) += cart->bytes_read;
@@ -383,9 +382,227 @@ void network_handle_rawbinary(ftdi_context_t* cart, u32 size, char* buffer, u32*
             left = BUFFER_SIZE;
     }
 
-    // Close the file and free the memory used for the filename
-    pdprint("Wrote %d bytes to %s.\n", CRDEF_INFO, size, filename);
-    fclose(fp);
-    free(filename);
-    free(extraname);
+    if (network_type != NT_NOTHING)
+    {
+        pdprint("Network Type already set. Please call 'network_handle_udp_disconnect' first.", CRDEF_ERROR);
+        return;
+    }
+
+    address.host = ENET_HOST_ANY;
+    address.port = std::stoi(std::string(buffer));
+    network_type = NT_SERVER;
+
+    #if VERBOSE
+    pdprint("\nCreating server on port '%d'\n", CRDEF_INFO, address.port);
+    #endif
+
+    host = enet_host_create(&address /* the address to bind the server host to */, 
+                            3        /* allow up to 3 clients and/or outgoing connections */,
+                            2        /* allow up to 2 channels to be used, 0 and 1 */,
+                            0        /* assume any amount of incoming bandwidth */,
+                            0        /* assume any amount of outgoing bandwidth */);
+    if (host)
+        pdprint("Server created.\n", CRDEF_INFO);
+    else
+        terminate("Server could not be created.");
+}
+
+
+/*==============================
+    network_handle_udp_connect
+    Handles NETTYPE_UDP_CONNECT
+    @param A pointer to the cart context
+    @param The size of the incoming data
+    @param The buffer to use
+    @param A pointer to a variable that stores the number of bytes read
+==============================*/
+
+void network_handle_udp_connect(ftdi_context_t* cart, u32 size, char* buffer, u32* read)
+{
+    int total = 0;
+    int left = size;
+
+    // Ensure the data fits within our buffer
+    if (left > BUFFER_SIZE)
+        left = BUFFER_SIZE;
+
+    // Read bytes until we finished
+    while (left != 0)
+    {
+        // Read from the USB and print it
+        FT_Read(cart->handle, buffer, left, &cart->bytes_read);
+        #if VERBOSE
+        pdprint("%.*s", CRDEF_PRINT, cart->bytes_read, buffer);
+        #endif
+
+        // Store the amount of bytes read
+        (*read) += cart->bytes_read;
+        total += cart->bytes_read;
+
+        // Ensure the data fits within our buffer
+        left = size - total;
+        if (left > BUFFER_SIZE)
+            left = BUFFER_SIZE;
+    }
+
+    if (network_type != NT_NOTHING)
+    {
+        pdprint("Network Type already set. Please call 'network_handle_udp_disconnect' first.", CRDEF_ERROR);
+        return;
+    }
+
+    std::string full_address(buffer);
+    int colon_pos = full_address.find(":");
+
+    enet_address_set_host(&address, full_address.substr(0, colon_pos).c_str());
+    address.port = std::stoi(full_address.substr(colon_pos + 1));
+    
+    #if VERBOSE
+    pdprint("\nConnecting to IP '%d', Port '%d'\n", CRDEF_INFO, address.host, address.port);
+    #endif
+
+    host = enet_host_create(NULL /* create a client host */,
+                            1    /* only allow 1 outgoing connection */,
+                            2    /* allow up 2 channels to be used, 0 and 1 */,
+                            0    /* assume any amount of incoming bandwidth */,
+                            0    /* assume any amount of outgoing bandwidth */);
+    if (!host)
+        terminate("Client could not be created.");
+
+    peer = enet_host_connect(host, &address, 2, 0);
+    if (!peer)
+        terminate("No available peers for initiating an ENet connection.");
+
+    /* Wait up to 5 seconds for the connection attempt to succeed. */
+    ENetEvent event;
+    if (enet_host_service(host, &event, 5000) > 0 &&
+        event.type == ENET_EVENT_TYPE_CONNECT)
+    {
+        pdprint("\nConnected to server.\n", CRDEF_INFO);
+        std::string result("Connected");
+        device_senddata(NETTYPE_UDP_CONNECT, (char *)result.c_str(), result.length());
+
+        network_type = NT_CLIENT;
+    }
+    else
+    {
+        /* Either the 5 seconds are up or a disconnect event was */
+        /* received. Reset the peer in the event the 5 seconds   */
+        /* had run out without any significant event.            */
+        enet_peer_reset(peer);
+        std::string result("Failed to connect to server");
+        pdprint("\n%s.\n", CRDEF_ERROR, result.c_str());
+        device_senddata(NETTYPE_UDP_DISCONNECT, (char *)result.c_str(), result.length());
+    }
+}
+
+
+/*==============================
+    network_handle_udp_disconnect
+    Handles NETTYPE_UDP_DISCONNECT
+    @param A pointer to the cart context
+    @param The size of the incoming data
+    @param The buffer to use
+    @param A pointer to a variable that stores the number of bytes read
+==============================*/
+
+void network_handle_udp_disconnect(ftdi_context_t* cart, u32 size, char* buffer, u32* read)
+{
+    if (network_type == NT_SERVER)
+    {
+        pdprint("\nDisconnecting server\n", CRDEF_INFO);
+
+        enet_host_destroy(host);
+
+        pdprint("\nServer disconnected\n", CRDEF_INFO);
+    }
+    else if (network_type == NT_CLIENT)
+    {
+        pdprint("\nDisconnecting client\n", CRDEF_INFO);
+
+        enet_peer_disconnect(peer, 0);
+
+        ENetEvent event;
+        /* Allow up to 3 seconds for the disconnect to succeed
+        * and drop any packets received packets.
+        */
+        bool done = false;
+        while (enet_host_service(host, &event, 3000) > 0 && !done)
+        {
+            switch (event.type)
+            {
+            case ENET_EVENT_TYPE_RECEIVE:
+                enet_packet_destroy(event.packet);
+                break;
+            case ENET_EVENT_TYPE_DISCONNECT:
+                pdprint("\nDisconnection succeeded\n", CRDEF_INFO);
+                done = true;
+                break;
+            }
+        }
+        // if timeout occured above, force disconnect
+        if (!done)
+            enet_peer_reset(peer);
+    }
+    else
+    {
+        pdprint("\nNot connected\n", CRDEF_INFO);
+    }
+
+    network_type = NT_NOTHING;
+}
+
+
+/*==============================
+    network_handle_udp_send
+    Handles NETTYPE_UDP_SEND
+    @param A pointer to the cart context
+    @param The size of the incoming data
+    @param The buffer to use
+    @param A pointer to a variable that stores the number of bytes read
+==============================*/
+
+void network_handle_udp_send(ftdi_context_t* cart, u32 size, char* buffer, u32* read)
+{
+    int total = 0;
+    int left = size;
+
+    // Ensure the data fits within our buffer
+    if (left > BUFFER_SIZE)
+        left = BUFFER_SIZE;
+
+    // Read bytes until we finished
+    while (left != 0)
+    {
+        // Read from the USB and print it
+        FT_Read(cart->handle, buffer, left, &cart->bytes_read);
+        #if VERBOSE
+        pdprint("%.*s", CRDEF_PRINT, cart->bytes_read, buffer);
+        #endif
+
+        // Store the amount of bytes read
+        (*read) += cart->bytes_read;
+        total += cart->bytes_read;
+
+        // Ensure the data fits within our buffer
+        left = size - total;
+        if (left > BUFFER_SIZE)
+            left = BUFFER_SIZE;
+    }
+
+    if (network_type == NT_NOTHING)
+    {
+        pdprint("Network Type not set. Please call 'network_handle_udp_start_server' or 'network_handle_udp_connect' first.", CRDEF_ERROR);
+        return;
+    }
+
+    ENetPacket* packet = enet_packet_create(buffer, size, 0);
+    if (network_type == NT_SERVER)
+        enet_host_broadcast(host, 0, packet);
+    else
+        enet_peer_send(peer, 0, packet);
+        
+    #if VERBOSE
+    pdprint("Data sent", CRDEF_INFO);
+    #endif
 }

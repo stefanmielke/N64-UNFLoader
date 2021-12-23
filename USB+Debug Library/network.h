@@ -23,12 +23,14 @@
     #define USB_THREAD_STACK 0x2000
     
     // Network types defintions
-    #define NETTYPE_TEXT         0x01
-    #define NETTYPE_UDP_CONNECT  0x02
-    #define NETTYPE_UDP_SEND     0x03
-    #define NETTYPE_URL_FETCH    0x04
-    #define NETTYPE_URL_DOWNLOAD 0x05
-    #define NETTYPE_URL_REQUEST  0x06
+    #define NETTYPE_TEXT              0x01
+    #define NETTYPE_UDP_START_SERVER  0x02
+    #define NETTYPE_UDP_CONNECT       0x03
+    #define NETTYPE_UDP_DISCONNECT    0x04
+    #define NETTYPE_UDP_SEND          0x05
+    #define NETTYPE_URL_FETCH         0x06
+    #define NETTYPE_URL_DOWNLOAD      0x07
+    #define NETTYPE_URL_REQUEST       0x08
     
     
     /*********************************
@@ -64,16 +66,46 @@
         ==============================*/
 
         extern void network_url_fetch(const char* url);
-        
-        
+
+
         /*==============================
-            network_dumpbinary
-            Dumps a binary file through USB
-            @param The file to dump
-            @param The size of the file
+            network_udp_start_server
+            Starts a server that will accept incoming data from clients.
+            Supports up to 256 characters.
+            @param Port to accept connections from.
         ==============================*/
-        
-        extern void network_dumpbinary(void* file, int size);
+
+        extern void network_udp_start_server(const char* port);
+
+
+        /*==============================
+            network_udp_connect
+            Send a request to connect to a server.
+            Supports up to 256 characters.
+            @param IP address and port to connect to (eg.: "127.0.0.1:1234").
+        ==============================*/
+
+        extern void network_udp_connect(const char* ip_address);
+
+
+        /*==============================
+            network_udp_disconnect
+            Disconnects from the current server.
+            Supports up to 256 characters.
+        ==============================*/
+
+        extern void network_udp_disconnect();
+
+
+        /*==============================
+            network_udp_send_data
+            Send data to the connected IP address.
+            Supports up to 256 characters.
+            @param Data to send
+            @param Size of data in bytes
+        ==============================*/
+
+        extern void network_udp_send_data(void* data, int size);
         
 
         /*==============================

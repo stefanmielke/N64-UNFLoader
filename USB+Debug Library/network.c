@@ -368,19 +368,99 @@ void network_url_fetch(const char *url)
 }
 
 /*==============================
-	network_dumpbinary
-	Dumps a binary file through USB
-	@param The file to dump
-	@param The size of the file
+	network_udp_start_server
+	Starts a server that will accept incoming data from clients.
+	Supports up to 256 characters.
 ==============================*/
 
-void network_dumpbinary(void *file, int size) {
-	usbMesg msg;
+void network_udp_start_server(const char* port)
+{
+	int len = strlen(port);
+	memcpy(network_buffer, port, len);
 
-	// Send the binary file to the usb thread
+	// Attach the '\0' if necessary
+	if (len >= 0)
+		network_buffer[len] = '\0';
+
+	// Send the printf to the usb thread
+	usbMesg msg;
 	msg.msgtype = MSG_WRITE;
-	msg.datatype = DATATYPE_RAWBINARY;
-	msg.buff = file;
+	msg.datatype = NETTYPE_UDP_START_SERVER;
+	msg.buff = network_buffer;
+	msg.size = len + 1;
+#ifndef LIBDRAGON
+	osSendMesg(&usbMessageQ, (OSMesg)&msg, OS_MESG_BLOCK);
+#else
+	network_thread_usb(&msg);
+#endif
+}
+
+/*==============================
+	network_udp_connect
+	Send a request to connect to an IP address.
+	Supports up to 256 characters.
+	@param IP address to connect to
+==============================*/
+
+void network_udp_connect(const char* ip_address)
+{
+	int len = strlen(ip_address);
+	memcpy(network_buffer, ip_address, len);
+
+	// Attach the '\0' if necessary
+	if (len >= 0)
+		network_buffer[len] = '\0';
+
+	// Send the printf to the usb thread
+	usbMesg msg;
+	msg.msgtype = MSG_WRITE;
+	msg.datatype = NETTYPE_UDP_CONNECT;
+	msg.buff = network_buffer;
+	msg.size = len + 1;
+#ifndef LIBDRAGON
+	osSendMesg(&usbMessageQ, (OSMesg)&msg, OS_MESG_BLOCK);
+#else
+	network_thread_usb(&msg);
+#endif
+}
+
+/*==============================
+	network_udp_disconnect
+	Disconnects from the current server.
+	Supports up to 256 characters.
+==============================*/
+
+void network_udp_disconnect()
+{
+	network_buffer[0] = '\0';
+	// Send the printf to the usb thread
+	usbMesg msg;
+	msg.msgtype = MSG_WRITE;
+	msg.datatype = NETTYPE_UDP_DISCONNECT;
+	msg.size = 1;
+	msg.buff = network_buffer;
+#ifndef LIBDRAGON
+	osSendMesg(&usbMessageQ, (OSMesg)&msg, OS_MESG_BLOCK);
+#else
+	network_thread_usb(&msg);
+#endif
+}
+
+/*==============================
+	network_udp_send_data
+	Send data to an IP address.
+	Supports up to 256 characters.
+	@param IP address to connect to
+	@param Data to send
+==============================*/
+
+void network_udp_send_data(void* data, int size)
+{
+	// Send the printf to the usb thread
+	usbMesg msg;
+	msg.msgtype = MSG_WRITE;
+	msg.datatype = NETTYPE_UDP_SEND;
+	msg.buff = data;
 	msg.size = size;
 #ifndef LIBDRAGON
 	osSendMesg(&usbMessageQ, (OSMesg)&msg, OS_MESG_BLOCK);
