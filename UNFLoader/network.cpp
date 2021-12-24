@@ -175,11 +175,49 @@ void network_main(ftdi_context_t *cart)
         FT_GetQueueStatus(cart->handle, &pending);
         if (pending == 0)
         {
-            #ifndef LINUX
-                Sleep(10);
-            #else
-                usleep(10);
-            #endif
+            if (network_type == NT_NOTHING)
+            {
+                #ifndef LINUX
+                    Sleep(10);
+                #else
+                    usleep(10);
+                #endif
+            }
+            else
+            {
+                ENetEvent event;
+                if (enet_host_service(host, &event, 1))
+                {
+                    switch (event.type)
+                    {
+                    case ENET_EVENT_TYPE_CONNECT:
+                        {
+                            printf("\nA new client connected from %x:%u.\n",
+                                event.peer->address.host,
+                                event.peer->address.port);
+                            std::string result("A new client connected");
+                            device_senddata(NETTYPE_UDP_DISCONNECT, (char *)result.c_str(), result.length());
+                        } break;
+                    case ENET_EVENT_TYPE_DISCONNECT:
+                        {
+                            printf("\n%u disconnected.\n", event.peer->connectID);
+                            std::string result("Disconnected");
+                            device_senddata(NETTYPE_UDP_DISCONNECT, (char *)result.c_str(), result.length());
+                        } break;
+                    case ENET_EVENT_TYPE_RECEIVE:
+                        {
+                            printf("\nA packet of length %zu containing %s was received from %u on channel %u.\n",
+                                event.packet->dataLength,
+                                event.packet->data,
+                                event.peer->connectID,
+                                event.channelID);
+
+                            device_senddata(NETTYPE_UDP_SEND, (char *)event.packet->data, event.packet->dataLength);
+                            enet_packet_destroy(event.packet);
+                        } break;
+                    }
+                }
+            }
         }
     }
 
@@ -543,6 +581,9 @@ void network_handle_udp_disconnect(ftdi_context_t* cart, u32 size, char* buffer,
         // if timeout occured above, force disconnect
         if (!done)
             enet_peer_reset(peer);
+
+        std::string result("Disconnection succeeded");
+        device_senddata(NETTYPE_UDP_DISCONNECT, (char *)result.c_str(), result.length());
     }
     else
     {
