@@ -37,6 +37,7 @@ void network_handle_udp_connect(ftdi_context_t* cart, u32 size, char* buffer, u3
 void network_handle_udp_disconnect(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
 void network_handle_udp_send(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
 void network_handle_url_fetch(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
+void network_handle_url_post(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
 void network_handle_text(ftdi_context_t* cart, u32 size, char* buffer, u32* read);
 size_t network_write_callback(char *ptr, size_t size, size_t nmemb, void *userdata);
 
@@ -117,9 +118,6 @@ void network_main(ftdi_context_t *cart)
 
     // init cURL for URL fetch
     curl_global_init(CURL_GLOBAL_DEFAULT);
-    curl = curl_easy_init();
-    if (!curl)
-        terminate("Error loading cURL");
 
     // init ENet
     if (enet_initialize () != 0)
@@ -266,6 +264,7 @@ void network_decidedata(ftdi_context_t* cart, u32 info, char* buffer, u32* read)
         case NETTYPE_UDP_DISCONNECT:   network_handle_udp_disconnect(cart, size, buffer, read); break;
         case NETTYPE_UDP_SEND:         network_handle_udp_send(cart, size, buffer, read); break;
         case NETTYPE_URL_FETCH:        network_handle_url_fetch(cart, size, buffer, read); break;
+        case NETTYPE_URL_POST:         network_handle_url_post(cart, size, buffer, read); break;
         default:                       printf("Unknown data type: %d", command);
     }
 }
@@ -312,13 +311,18 @@ void network_handle_url_fetch(ftdi_context_t* cart, u32 size, char* buffer, u32*
     MemoryWriteCallback data_buffer;
     data_buffer.cur_size = 0;
     data_buffer.memory = NULL;
-    
-    curl_easy_setopt(curl, CURLOPT_URL, buffer);
+
+    curl = curl_easy_init();
+    if (!curl)
+        terminate("Error loading cURL");
+
+    std::string url(buffer, 0, size);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, network_write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&data_buffer);
 
     #if VERBOSE
-    pdprint("\ncalling URL: %s\n", CRDEF_INFO, buffer);
+    pdprint("\ncalling URL: %s\n", CRDEF_INFO, url.c_str());
     #endif
 
     res = curl_easy_perform(curl);
@@ -343,6 +347,72 @@ size_t network_write_callback(char *contents, size_t size, size_t nmemb, void *u
     data_buffer->cur_size += real_size;
 
     return real_size;
+}
+
+
+/*==============================
+    network_handle_url_post
+    Handles NETTYPE_URL_POST
+    @param A pointer to the cart context
+    @param The size of the incoming data
+    @param The buffer to use
+    @param A pointer to a variable that stores the number of bytes read
+==============================*/
+
+void network_handle_url_post(ftdi_context_t* cart, u32 size, char* buffer, u32* read)
+{
+    int total = 0;
+    int left = size;
+
+    // Ensure the data fits within our buffer
+    if (left > BUFFER_SIZE)
+        left = BUFFER_SIZE;
+
+    // Read bytes until we finished
+    while (left != 0)
+    {
+        // Read from the USB and print it
+        FT_Read(cart->handle, buffer, left, &cart->bytes_read);
+        #if VERBOSE
+        pdprint("%.*s", CRDEF_PRINT, cart->bytes_read, buffer);
+        #endif
+
+        // Store the amount of bytes read
+        (*read) += cart->bytes_read;
+        total += cart->bytes_read;
+
+        // Ensure the data fits within our buffer
+        left = size - total;
+        if (left > BUFFER_SIZE)
+            left = BUFFER_SIZE;
+    }
+
+    curl = curl_easy_init();
+    if (!curl)
+        terminate("Error loading cURL");
+
+    std::string url(buffer, 0, size);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_POST, 1);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0);
+
+    #if VERBOSE
+    pdprint("\nPosting to URL: %s\n", CRDEF_INFO, url.c_str());
+    #endif
+
+    CURLcode res = curl_easy_perform(curl);
+    if(res != CURLE_OK)
+    {
+        std::string result(curl_easy_strerror(res));
+        device_senddata(NETTYPE_URL_POST, (char*)result.c_str(), result.length());
+        pdprint("\ncurl_easy_perform() failed: %s\n", CRDEF_ERROR, curl_easy_strerror(res));
+        return;
+    }
+
+    curl_easy_cleanup(curl);
+
+    std::string result("done");
+    device_senddata(NETTYPE_URL_POST, (char*)result.c_str(), result.length() + 1);
 }
 
 

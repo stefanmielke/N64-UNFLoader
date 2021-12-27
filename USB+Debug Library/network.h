@@ -30,7 +30,7 @@
     #define NETTYPE_UDP_SEND          0x05
     #define NETTYPE_URL_FETCH         0x06
     #define NETTYPE_URL_DOWNLOAD      0x07
-    #define NETTYPE_URL_REQUEST       0x08
+    #define NETTYPE_URL_POST          0x08
     
     
     /*********************************
@@ -42,9 +42,10 @@
         /*==============================
             network_initialize
             Initializes the debug and USB library.
+            Returns '1' if communication is OK, '0' if not.
         ==============================*/
         
-        extern void network_initialize();
+        extern char network_initialize();
         
         
         /*==============================
@@ -66,6 +67,16 @@
         ==============================*/
 
         extern void network_url_fetch(const char* url);
+
+
+        /*==============================
+            network_url_fetch
+            Send a POST request to get data from URL (no DATA can be sent yet).
+            Supports up to 256 characters.
+            @param A URL
+        ==============================*/
+
+        extern void network_url_post(const char* url);
 
 
         /*==============================

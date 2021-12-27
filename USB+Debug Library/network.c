@@ -254,10 +254,10 @@ static regDesc fpcsrDesc[] = {{FPCSR_FS, FPCSR_FS, "FS"},
 	Initializes the debug library
 ==============================*/
 
-void network_initialize() {
+char network_initialize() {
 	// Initialize the USB functions
 	if (!usb_initialize())
-		return;
+		return 0;
 
 // Overwrite osSyncPrintf
 #ifndef LIBDRAGON
@@ -283,6 +283,8 @@ void network_initialize() {
 #if network_INIT_MSG
 	network_printf("Debug mode initialized!\n\n");
 #endif
+
+	return 1;
 }
 
 #ifndef LIBDRAGON
@@ -358,6 +360,36 @@ void network_url_fetch(const char *url)
 	usbMesg msg;
 	msg.msgtype = MSG_WRITE;
 	msg.datatype = NETTYPE_URL_FETCH;
+	msg.buff = network_buffer;
+	msg.size = len;
+#ifndef LIBDRAGON
+	osSendMesg(&usbMessageQ, (OSMesg)&msg, OS_MESG_BLOCK);
+#else
+	network_thread_usb(&msg);
+#endif
+}
+
+/*==============================
+	network_url_fetch
+	Send a POST request to get data from URL.
+	Supports up to 256 characters.
+	@param A URL
+	@param Data to POST (can be NULL)
+==============================*/
+
+void network_url_post(const char* url)
+{
+	int len = strlen(url);
+	memcpy(network_buffer, url, len);
+
+	// Attach the '\0' if necessary
+	if (len >= 0)
+		network_buffer[len] = '\0';
+
+	// Send the printf to the usb thread
+	usbMesg msg;
+	msg.msgtype = MSG_WRITE;
+	msg.datatype = NETTYPE_URL_POST;
 	msg.buff = network_buffer;
 	msg.size = len + 1;
 #ifndef LIBDRAGON
